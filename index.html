@@ -128,25 +128,19 @@
           return { id: `a-${i}`, rank, jamia, ustaz, raqam, unit };
         });
 
-        // UPDATED: Jamia total is now calculated by summing up the 'raqam' of each Asatiza.
         const jamiaMap = {};
         asatiza.forEach(a => {
             if (!a.jamia) return; 
-
             const jamiaName = a.jamia.trim();
-            // Normalize the name for better grouping
             const normalizedName = jamiaName.toLowerCase().replace(/\s+/g, ' ').trim();
             if (!normalizedName) return; 
-
             const amount = a.raqam;
-
             if (!jamiaMap[normalizedName]) {
                 jamiaMap[normalizedName] = { jamia: jamiaName, totalAmount: 0, count: 0 };
             }
             jamiaMap[normalizedName].totalAmount += isNaN(amount) ? 0 : amount;
             jamiaMap[normalizedName].count += 1;
         });
-
 
         const jamiaData = Object.values(jamiaMap)
           .map((g, idx) => ({ id: `j-${idx}`, ...g, totalUnit: g.totalAmount / UNIT_DIVISOR }))
@@ -266,7 +260,8 @@
                   <div className="text-sm text-gray-500">Top 3 highlighted</div>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-4">
+                {/* UPDATED: Desktop View */}
+                <div className="hidden md:grid md:grid-cols-2 gap-4">
                   <div>
                     <ol className="list-decimal pl-6">
                       {jamiaData.slice(0, 3).map((j, i) => (
@@ -311,10 +306,35 @@
                     </div>
                   </div>
                 </div>
+                
+                {/* UPDATED: Mobile View */}
+                <div className="md:hidden flex flex-col gap-3">
+                  {jamiaData.map((j, i) => {
+                    const topHighlightClass = i === 0 ? "bg-amber-50 border-amber-300" : i === 1 ? "bg-slate-50 border-slate-300" : i === 2 ? "bg-lime-50 border-lime-300" : "";
+                    const medalIcon = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
+                    return (
+                      <div key={j.id} className={`p-3 rounded-lg shadow-sm bg-white border ${topHighlightClass}`}>
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
+                            {medalIcon && <div className="text-2xl">{medalIcon}</div>}
+                            <div>
+                              <div className="text-sm text-gray-500">Rank #{i + 1}</div>
+                              <div className="font-semibold text-base">{j.jamia}</div>
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="font-bold text-lg text-emerald-600">{formatNumber(j.totalAmount)}</div>
+                            <div className="text-sm text-gray-600">Asatiza: <span className="font-medium">{j.count}</span></div>
+                            <div className="text-sm text-indigo-600">Units: <span className="font-medium">{j.totalUnit.toFixed(2)}</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
               </section>
             )}
-
-            <footer className="mt-6 text-xs text-gray-500">Upload this file as <span className="font-mono">index.html</span> to your repo root and enable GitHub Pages (branch: main).</footer>
           </div>
         );
       }
