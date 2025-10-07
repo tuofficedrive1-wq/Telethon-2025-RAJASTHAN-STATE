@@ -8,12 +8,13 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
       thead.sticky { position: sticky; top: 0; z-index: 10; }
     </style>
   </head>
   <body class="bg-gray-50 min-h-screen">
-    <div id="root" class="p-4 max-w-6xl mx-auto"></div>
+    <div id="root"></div>
 
     <script type="text/babel">
       const { useState, useEffect, useRef } = React;
@@ -22,7 +23,6 @@
       const SHEET_NAME = "RAJASTHAN STATE";
       const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
 
-      // Auto-refresh interval: 2000 ms (2 seconds)
       const REFRESH_INTERVAL_MS = 2000;
       const UNIT_DIVISOR = 7000;
 
@@ -89,12 +89,65 @@
         if (typeof n !== "number" || !isFinite(n)) return "0";
         return n.toLocaleString();
       }
+      
+      // Component to generate the image with improved styling
+      const ImageGenerator = ({ data, title, captureRef }) => {
+        const today = new Date();
+        const formattedDate = `Date: ${today.toLocaleDateString('en-GB')} ${today.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+        
+        const getRowClass = (index) => {
+          if (index === 0) return "bg-amber-200 text-amber-900 font-bold"; // Gold
+          if (index === 1) return "bg-slate-200 text-slate-900 font-bold"; // Silver
+          if (index === 2) return "bg-orange-200 text-orange-900 font-bold"; // Bronze
+          return index % 2 === 0 ? "bg-white" : "bg-gray-50";
+        };
+
+        return (
+          <div ref={captureRef} className="w-[800px] p-8 font-sans" style={{ background: 'linear-gradient(135deg, #f5f7fa 0%, #e0e7ff 100%)'}}>
+            <div className="text-center mb-8">
+                <h1 className="text-4xl font-extrabold text-indigo-900 tracking-wider mb-2">TELETHON 2025 AJMER DIVISION</h1>
+                <h2 className="text-3xl font-semibold text-indigo-700 tracking-wider">{title}</h2>
+            </div>
+            <div className="mt-8 shadow-lg rounded-lg overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-indigo-800 text-white">
+                  <tr>
+                    <th className="p-4 font-bold text-base">Rank</th>
+                    <th className="p-4 font-bold text-base">Ustaz Name</th>
+                    <th className="p-4 font-bold text-base">Jamia Name</th>
+                    <th className="p-4 font-bold text-base text-right">Raqam</th>
+                    <th className="p-4 font-bold text-base text-right">Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.map((row, index) => (
+                    <tr key={row.id} className={getRowClass(index)}>
+                      <td className="p-3 font-bold text-center">{index + 1}</td>
+                      <td className="p-3 uppercase font-medium">{row.ustaz}</td>
+                      <td className="p-3 uppercase font-semibold">{row.jamia}</td>
+                      <td className="p-3 text-right font-semibold">{formatNumber(row.raqam)}</td>
+                      <td className="p-3 text-right font-bold">{row.unit.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-8 flex justify-between items-center text-sm text-gray-700 font-medium">
+              <span>Majlis Talimi Umoor India</span>
+              <span>{formattedDate}</span>
+            </div>
+          </div>
+        );
+      };
+
 
       function App() {
         const [view, setView] = useState("Asatiza");
         const [rows, setRows] = useState([]);
         const [lastUpdated, setLastUpdated] = useState(null);
         const timerRef = useRef(null);
+        const imageCaptureRef = useRef();
+        const [imageRequest, setImageRequest] = useState(null);
 
         async function fetchData() {
           try {
@@ -102,7 +155,6 @@
             if (!res.ok) throw new Error("Fetch failed: " + res.status);
             const text = await res.text();
             const parsed = parseCSV(text);
-             // We don't need to pre-calculate _amount on raw rows anymore, as Jamia total is derived from asatiza's raqam
             setRows(parsed);
             setLastUpdated(new Date());
           } catch (err) {
@@ -115,6 +167,20 @@
           timerRef.current = setInterval(fetchData, REFRESH_INTERVAL_MS);
           return () => clearInterval(timerRef.current);
         }, []);
+        
+        useEffect(() => {
+            if (imageRequest && imageCaptureRef.current) {
+                html2canvas(imageCaptureRef.current, { useCORS: true, scale: 2 }).then(canvas => {
+                    const imgData = canvas.toDataURL('image/png');
+                    const link = document.createElement('a');
+                    link.download = imageRequest.filename;
+                    link.href = imgData;
+                    link.click();
+                    setImageRequest(null);
+                });
+            }
+        }, [imageRequest]);
+
 
         const asatiza = rows.map((r, i) => {
           const rankRaw = firstMatchingValue(r, ["rank", "rnk"]) || "";
@@ -146,18 +212,8 @@
           .map((g, idx) => ({ id: `j-${idx}`, ...g, totalUnit: g.totalAmount / UNIT_DIVISOR }))
           .sort((a, b) => b.totalAmount - a.totalAmount);
 
-        const sortedByAmount = [...asatiza].sort((a, b) => b.raqam - a.raqam);
-        const topAsatizaIds = sortedByAmount.slice(0, 3).map(x => x.id);
-
-        function getPos(id) {
-          const byRank = asatiza.filter(x => x.rank !== null).sort((a, b) => a.rank - b.rank).map(x => x.id);
-          if (byRank.length >= 3) {
-            const p = byRank.indexOf(id);
-            return p >= 0 ? p : null;
-          }
-          const p2 = topAsatizaIds.indexOf(id);
-          return p2 >= 0 ? p2 : null;
-        }
+        const sortedAsatizaByRaqam = [...asatiza].sort((a, b) => b.raqam - a.raqam);
+        const topAsatizaIds = sortedAsatizaByRaqam.slice(0, 3).map(x => x.id);
 
         function topClass(pos) {
           if (pos === 0) return "bg-amber-50 border-amber-300";
@@ -172,169 +228,200 @@
           if (pos === 2) return "🥉";
           return "";
         }
+        
+        const handleDownloadImage = (type) => {
+          if (type === 'top5') {
+            setImageRequest({
+              data: sortedAsatizaByRaqam.slice(0, 5),
+              title: "TOP 5 WINNERS",
+              filename: 'telethon-top-5-winners.png'
+            });
+          } else if (type === 'full') {
+            setImageRequest({
+              data: sortedAsatizaByRaqam,
+              title: "FULL LIST",
+              filename: 'telethon-full-list.png'
+            });
+          }
+        };
+
 
         return (
-          <div className="p-4">
-            <header className="mb-6">
-              <div className="rounded-2xl p-4 bg-white shadow-sm border text-center">
-                <div className="inline-block px-6 py-2 rounded-lg bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-800 font-extrabold tracking-wider text-2xl">
-                  TELETHONE 2025 AJMER DIVISION
+          <div>
+            {imageRequest && (
+                <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+                    <ImageGenerator data={imageRequest.data} title={imageRequest.title} captureRef={imageCaptureRef} />
                 </div>
-              </div>
-            </header>
+            )}
+            
+            <div className="p-4 max-w-6xl mx-auto">
+                <header className="mb-6">
+                <div className="rounded-2xl p-4 bg-white shadow-sm border text-center">
+                    <div className="inline-block px-6 py-2 rounded-lg bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-800 font-extrabold tracking-wider text-2xl">
+                    TELETHONE 2025 AJMER DIVISION
+                    </div>
+                </div>
+                </header>
 
-            <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="inline-flex rounded-lg bg-white shadow-sm p-1">
-                <button onClick={() => setView("Asatiza")} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === "Asatiza" ? "bg-teal-600 text-white shadow" : "text-gray-700 hover:bg-gray-50"}`}>
-                  Asatiza
-                </button>
-                <button onClick={() => setView("Jamia")} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === "Jamia" ? "bg-indigo-600 text-white shadow" : "text-gray-700 hover:bg-gray-50"}`}>
-                  Jamia
-                </button>
-              </div>
-              <div className="text-sm text-gray-600">Auto-refresh: every {REFRESH_INTERVAL_MS / 1000}s • Last: {lastUpdated ? lastUpdated.toLocaleString() : "—"}</div>
-            </div>
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center flex-wrap gap-4">
+                    <div className="inline-flex rounded-lg bg-white shadow-sm p-1">
+                        <button onClick={() => setView("Asatiza")} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === "Asatiza" ? "bg-teal-600 text-white shadow" : "text-gray-700 hover:bg-gray-50"}`}>
+                        Asatiza
+                        </button>
+                        <button onClick={() => setView("Jamia")} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === "Jamia" ? "bg-indigo-600 text-white shadow" : "text-gray-700 hover:bg-gray-50"}`}>
+                        Jamia
+                        </button>
+                    </div>
+                    {view === 'Asatiza' && (
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => handleDownloadImage('top5')} disabled={!!imageRequest} className="px-3 py-2 rounded-lg text-xs font-medium bg-purple-600 text-white shadow hover:bg-purple-700 transition disabled:bg-purple-300">
+                                {imageRequest ? 'Generating...' : 'Download Top 5 (Image)'}
+                            </button>
+                             <button onClick={() => handleDownloadImage('full')} disabled={!!imageRequest} className="px-3 py-2 rounded-lg text-xs font-medium bg-cyan-600 text-white shadow hover:bg-cyan-700 transition disabled:bg-cyan-300">
+                                {imageRequest ? 'Generating...' : 'Download Full List (Image)'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+                <div className="text-sm text-gray-600 text-right">Auto-refresh: every {REFRESH_INTERVAL_MS / 1000}s • Last: {lastUpdated ? lastUpdated.toLocaleString() : "—"}</div>
+                </div>
 
-            {view === "Asatiza" ? (
-              <section>
-                <div className="hidden md:block bg-white shadow rounded p-4">
-                  <table className="min-w-full table-auto border-collapse">
-                    <thead className="sticky top-0 bg-white">
-                      <tr className="text-left border-b">
-                        <th className="py-3 px-4 text-sm font-medium">Rank</th>
-                        <th className="py-3 px-4 text-sm font-medium">Ustaz Name</th>
-                        <th className="py-3 px-4 text-sm font-medium">Jamia Name</th>
-                        <th className="py-3 px-4 text-sm font-medium text-right">Raqam</th>
-                        <th className="py-3 px-4 text-sm font-medium text-right">Unit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {asatiza.map((r, idx) => {
-                        const pos = getPos(r.id);
+                {view === "Asatiza" ? (
+                <section>
+                    <div className="hidden md:block bg-white shadow rounded p-4">
+                    <table className="min-w-full table-auto border-collapse">
+                        <thead className="sticky top-0 bg-white">
+                        <tr className="text-left border-b">
+                            <th className="py-3 px-4 text-sm font-medium">Rank</th>
+                            <th className="py-3 px-4 text-sm font-medium">Ustaz Name</th>
+                            <th className="py-3 px-4 text-sm font-medium">Jamia Name</th>
+                            <th className="py-3 px-4 text-sm font-medium text-right">Raqam</th>
+                            <th className="py-3 px-4 text-sm font-medium text-right">Unit</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {sortedAsatizaByRaqam.map((r, idx) => {
+                            const pos = topAsatizaIds.indexOf(r.id);
+                            const tc = topClass(pos);
+                            const raqamColor = pos === 0 ? "text-emerald-600 font-bold" : pos === 1 ? "text-sky-600 font-bold" : pos === 2 ? "text-amber-600 font-bold" : "text-slate-700";
+                            return (
+                            <tr key={r.id} className={`${tc} border ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                                <td className="py-4 px-4 text-sm align-top font-semibold">{idx + 1}</td>
+                                <td className="py-4 px-4 text-sm align-top">{r.ustaz || "—"}</td>
+                                <td className="py-4 px-4 text-sm align-top flex items-center gap-3">{pos !== -1 && <span className="text-xl">{medal(pos)}</span>}<span className="font-bold uppercase tracking-wide">{r.jamia || "—"}</span></td>
+                                <td className={`py-4 px-4 text-sm text-right align-top ${raqamColor}`}>{formatNumber(r.raqam)}</td>
+                                <td className="py-4 px-4 text-sm text-right align-top"><span className="text-indigo-600 font-medium">{Number.isFinite(r.unit) ? r.unit.toFixed(1) : "0.0"}</span></td>
+                            </tr>
+                            );
+                        })}
+                        </tbody>
+                    </table>
+                    </div>
+
+                    <div className="md:hidden flex flex-col gap-3">
+                    {sortedAsatizaByRaqam.map((r, idx) => {
+                        const pos = topAsatizaIds.indexOf(r.id);
                         const tc = topClass(pos);
                         const raqamColor = pos === 0 ? "text-emerald-600 font-bold" : pos === 1 ? "text-sky-600 font-bold" : pos === 2 ? "text-amber-600 font-bold" : "text-slate-700";
                         return (
-                          <tr key={r.id} className={`${tc} border ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                            <td className="py-4 px-4 text-sm align-top font-semibold">{pos !== null ? `${pos + 1}` : r.rank || "—"}</td>
-                            <td className="py-4 px-4 text-sm align-top">{r.ustaz || "—"}</td>
-                            <td className="py-4 px-4 text-sm align-top flex items-center gap-3">{pos !== null && <span className="text-xl">{medal(pos)}</span>}<span className="font-bold uppercase tracking-wide">{r.jamia || "—"}</span></td>
-                            <td className={`py-4 px-4 text-sm text-right align-top ${raqamColor}`}>{formatNumber(r.raqam)}</td>
-                            <td className="py-4 px-4 text-sm text-right align-top"><span className="text-indigo-600 font-medium">{Number.isFinite(r.unit) ? r.unit.toFixed(1) : "0.0"}</span></td>
-                          </tr>
+                        <div key={r.id} className={`p-3 rounded-lg shadow-sm bg-white border ${tc}`}>
+                            <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                {pos !== -1 && <div className="text-2xl">{medal(pos)}</div>}
+                                <div>
+                                <div className="text-sm text-gray-500">Rank #{idx+1}</div>
+                                <div className="font-semibold text-base">{r.ustaz || "—"}</div>
+                                <div className="text-xs text-gray-500">{r.jamia || "—"}</div>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <div className={`${raqamColor} text-lg`}>{formatNumber(r.raqam)}</div>
+                                <div className="text-indigo-600 text-sm">{Number.isFinite(r.unit) ? r.unit.toFixed(1) : "0.0"}</div>
+                            </div>
+                            </div>
+                        </div>
                         );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="md:hidden flex flex-col gap-3">
-                  {asatiza.map((r, idx) => {
-                    const pos = getPos(r.id);
-                    const tc = topClass(pos);
-                    const raqamColor = pos === 0 ? "text-emerald-600 font-bold" : pos === 1 ? "text-sky-600 font-bold" : pos === 2 ? "text-amber-600 font-bold" : "text-slate-700";
-                    return (
-                      <div key={r.id} className={`p-3 rounded-lg shadow-sm bg-white border ${tc}`}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            {pos !== null && <div className="text-2xl">{medal(pos)}</div>}
-                            <div>
-                              <div className="text-sm text-gray-500">{r.rank || "—"}</div>
-                              <div className="font-semibold text-base">{r.ustaz || "—"}</div>
-                              <div className="text-xs text-gray-500">{r.jamia || "—"}</div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className={`${raqamColor} text-lg`}>{formatNumber(r.raqam)}</div>
-                            <div className="text-indigo-600 text-sm">{Number.isFinite(r.unit) ? r.unit.toFixed(1) : "0.0"}</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : (
-              <section className="bg-white shadow rounded p-4">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Jamia — Aggregate</h2>
-                  <div className="text-sm text-gray-500">Top 3 highlighted</div>
-                </div>
-
-                {/* UPDATED: Desktop View */}
-                <div className="hidden md:grid md:grid-cols-2 gap-4">
-                  <div>
-                    <ol className="list-decimal pl-6">
-                      {jamiaData.slice(0, 3).map((j, i) => (
-                        <li key={j.id} className={`mb-2 p-3 border rounded ${i === 0 ? "bg-amber-50 border-amber-300" : i === 1 ? "bg-slate-50 border-slate-300" : "bg-lime-50 border-lime-300"}`}>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3"><div className="text-base font-semibold">{i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"} {j.jamia}</div><div className="text-sm text-gray-600">(#{i + 1})</div></div>
-                            <div className="text-sm text-gray-700">Units: <span className="font-medium">{j.totalUnit.toFixed(2)}</span></div>
-                          </div>
-                           <div className="flex items-center justify-between mt-1">
-                                <div className="text-sm text-gray-600">Total: <span className="font-semibold">{formatNumber(j.totalAmount)}</span></div>
-                                <div className="text-sm text-gray-600">Asatiza: <span className="font-semibold">{j.count}</span></div>
-                           </div>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-
-                  <div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full table-auto border-collapse">
-                        <thead className="bg-white sticky top-0">
-                          <tr className="text-left border-b">
-                            <th className="py-2 px-3 text-sm font-medium">Pos</th>
-                            <th className="py-2 px-3 text-sm font-medium">Jamia</th>
-                            <th className="py-2 px-3 text-sm font-medium text-right">Total Amount</th>
-                            <th className="py-2 px-3 text-sm font-medium text-right">Asatiza Count</th>
-                            <th className="py-2 px-3 text-sm font-medium text-right">Total Units</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {jamiaData.map((j, i) => (
-                            <tr key={j.id} className={`${i < 3 ? "font-semibold" : ""} border-b`}>
-                              <td className="py-2 px-3 text-sm align-top">{i < 3 ? (i === 0 ? "🥇 1" : i === 1 ? "🥈 2" : "🥉 3") : (i + 1)}</td>
-                              <td className={`py-2 px-3 text-sm align-top ${i === 0 ? "text-amber-800" : i === 1 ? "text-slate-800" : i === 2 ? "text-lime-800" : ""}`}>{j.jamia}</td>
-                              <td className="py-2 px-3 text-sm text-right align-top">{formatNumber(j.totalAmount)}</td>
-                              <td className="py-2 px-3 text-sm text-right align-top">{j.count}</td>
-                              <td className="py-2 px-3 text-sm text-right align-top">{j.totalUnit.toFixed(2)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    })}
                     </div>
-                  </div>
-                </div>
-                
-                {/* UPDATED: Mobile View */}
-                <div className="md:hidden flex flex-col gap-3">
-                  {jamiaData.map((j, i) => {
-                    const topHighlightClass = i === 0 ? "bg-amber-50 border-amber-300" : i === 1 ? "bg-slate-50 border-slate-300" : i === 2 ? "bg-lime-50 border-lime-300" : "";
-                    const medalIcon = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
-                    return (
-                      <div key={j.id} className={`p-3 rounded-lg shadow-sm bg-white border ${topHighlightClass}`}>
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-3">
-                            {medalIcon && <div className="text-2xl">{medalIcon}</div>}
-                            <div>
-                              <div className="text-sm text-gray-500">Rank #{i + 1}</div>
-                              <div className="font-semibold text-base">{j.jamia}</div>
-                            </div>
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <div className="font-bold text-lg text-emerald-600">{formatNumber(j.totalAmount)}</div>
-                            <div className="text-sm text-gray-600">Asatiza: <span className="font-medium">{j.count}</span></div>
-                            <div className="text-sm text-indigo-600">Units: <span className="font-medium">{j.totalUnit.toFixed(2)}</span></div>
-                          </div>
+                </section>
+                ) : (
+                <section className="bg-white shadow rounded p-4">
+                    <div className="mb-4 flex items-center justify-between">
+                        <h2 className="text-lg font-semibold">Jamia — Aggregate</h2>
+                        <div className="text-sm text-gray-500">Top 3 highlighted</div>
+                    </div>
+                    <div className="hidden md:grid md:grid-cols-2 gap-4">
+                        <div>
+                        <ol className="list-decimal pl-6">
+                            {jamiaData.slice(0, 3).map((j, i) => (
+                            <li key={j.id} className={`mb-2 p-3 border rounded ${topClass(i)}`}>
+                                <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3"><div className="text-base font-semibold">{medal(i)} {j.jamia}</div><div className="text-sm text-gray-600">(#{i + 1})</div></div>
+                                <div className="text-sm text-gray-700">Units: <span className="font-medium">{j.totalUnit.toFixed(2)}</span></div>
+                                </div>
+                                <div className="flex items-center justify-between mt-1">
+                                    <div className="text-sm text-gray-600">Total: <span className="font-semibold">{formatNumber(j.totalAmount)}</span></div>
+                                    <div className="text-sm text-gray-600">Asatiza: <span className="font-semibold">{j.count}</span></div>
+                                </div>
+                            </li>
+                            ))}
+                        </ol>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-              </section>
-            )}
+                        <div>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full table-auto border-collapse">
+                            <thead className="bg-white sticky top-0">
+                                <tr className="text-left border-b">
+                                <th className="py-2 px-3 text-sm font-medium">Pos</th>
+                                <th className="py-2 px-3 text-sm font-medium">Jamia</th>
+                                <th className="py-2 px-3 text-sm font-medium text-right">Total Amount</th>
+                                <th className="py-2 px-3 text-sm font-medium text-right">Asatiza Count</th>
+                                <th className="py-2 px-3 text-sm font-medium text-right">Total Units</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {jamiaData.map((j, i) => (
+                                <tr key={j.id} className={`${i < 3 ? "font-semibold" : ""} border-b`}>
+                                    <td className="py-2 px-3 text-sm align-top">{i < 3 ? `${medal(i)} ${i + 1}` : (i + 1)}</td>
+                                    <td className={`py-2 px-3 text-sm align-top ${i === 0 ? "text-amber-800" : i === 1 ? "text-slate-800" : i === 2 ? "text-lime-800" : ""}`}>{j.jamia}</td>
+                                    <td className="py-2 px-3 text-sm text-right align-top">{formatNumber(j.totalAmount)}</td>
+                                    <td className="py-2 px-3 text-sm text-right align-top">{j.count}</td>
+                                    <td className="py-2 px-3 text-sm text-right align-top">{j.totalUnit.toFixed(2)}</td>
+                                </tr>
+                                ))}
+                            </tbody>
+                            </table>
+                        </div>
+                        </div>
+                    </div>
+                    <div className="md:hidden flex flex-col gap-3">
+                        {jamiaData.map((j, i) => {
+                        const topHighlightClass = topClass(i);
+                        const medalIcon = medal(i);
+                        return (
+                            <div key={j.id} className={`p-3 rounded-lg shadow-sm bg-white border ${topHighlightClass}`}>
+                            <div className="flex items-start justify-between">
+                                <div className="flex items-center gap-3">
+                                {medalIcon && <div className="text-2xl">{medalIcon}</div>}
+                                <div>
+                                    <div className="text-sm text-gray-500">Rank #{i + 1}</div>
+                                    <div className="font-semibold text-base">{j.jamia}</div>
+                                </div>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                <div className="font-bold text-lg text-emerald-600">{formatNumber(j.totalAmount)}</div>
+                                <div className="text-sm text-gray-600">Asatiza: <span className="font-medium">{j.count}</span></div>
+                                <div className="text-sm text-indigo-600">Units: <span className="font-medium">{j.totalUnit.toFixed(2)}</span></div>
+                                </div>
+                            </div>
+                            </div>
+                        );
+                        })}
+                    </div>
+                </section>
+                )}
+            </div>
           </div>
         );
       }
